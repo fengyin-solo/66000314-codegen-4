@@ -55,3 +55,31 @@ export interface ASTNode {
   children?: ASTNode[]
   groupIndex?: number
 }
+
+export interface BacktraceChainNode {
+  depth: number
+  state: number
+  charIndex: number
+  char: string
+  transition: string
+  isBacktrack: boolean
+}
+
+export interface BacktrackHotspot {
+  id: number
+  charIndex: number
+  char: string
+  backtrackCount: number
+  totalSteps: number
+  sampleText: string
+  sampleStart: number
+  sampleEnd: number
+  chain: BacktraceChainNode[]
+}
+
+export interface BacktrackAnalysis {
+  hotspots: BacktrackHotspot[]
+  totalBacktracks: number
+  worstHotspot: BacktrackHotspot | null
+  backtrackRate: number
+}

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { NFA, MatchResult, MatchStep, RegexTemplate, ASTNode } from '../types'
+import type { NFA, MatchResult, MatchStep, RegexTemplate, ASTNode, BacktrackAnalysis, BacktrackHotspot, BacktraceChainNode } from '../types'
 
 const GROUP_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6']
 
@@ -286,6 +286,82 @@ function runMatch(states: StateNode[], startState: number, input: string): Match
   return { matched: false, matchText: '', groups: [], steps, backtracks, totalSteps: stepIndex, duration: Math.round(duration * 100) / 100 }
 }
 
+function buildBacktraceChain(steps: MatchStep[], backtrackIndex: number): BacktraceChainNode[] {
+  const chain: BacktraceChainNode[] = []
+  const startIdx = Math.max(0, backtrackIndex - 20)
+  
+  for (let i = startIdx; i <= backtrackIndex; i++) {
+    const step = steps[i]
+    if (!step) continue
+    chain.push({
+      depth: chain.length,
+      state: step.currentState,
+      charIndex: step.charIndex,
+      char: step.char,
+      transition: step.transition,
+      isBacktrack: step.isBacktrack
+    })
+  }
+  
+  return chain
+}
+
+export function analyzeBacktracks(result: MatchResult, testString: string): BacktrackAnalysis {
+  if (!result || result.steps.length === 0) {
+    return { hotspots: [], totalBacktracks: 0, worstHotspot: null, backtrackRate: 0 }
+  }
+
+  const backtrackSteps = result.steps.filter(s => s.isBacktrack)
+  const totalBacktracks = backtrackSteps.length
+  const backtrackRate = totalBacktracks > 0 ? totalBacktracks / result.totalSteps : 0
+
+  const hotspotMap = new Map<number, { count: number; steps: number; firstBacktrackIdx: number }>()
+  
+  result.steps.forEach((step, idx) => {
+    if (step.isBacktrack) {
+      const key = step.charIndex
+      const existing = hotspotMap.get(key)
+      if (existing) {
+        existing.count++
+        existing.steps++
+      } else {
+        hotspotMap.set(key, { count: 1, steps: 1, firstBacktrackIdx: idx })
+      }
+    }
+  })
+
+  const hotspots: BacktrackHotspot[] = []
+  let id = 0
+  
+  hotspotMap.forEach((data, charIndex) => {
+    const sampleRadius = 10
+    const sampleStart = Math.max(0, charIndex - sampleRadius)
+    const sampleEnd = Math.min(testString.length, charIndex + sampleRadius + 1)
+    const sampleText = testString.substring(sampleStart, sampleEnd)
+    const char = testString[charIndex] || ' '
+    
+    const chain = buildBacktraceChain(result.steps, data.firstBacktrackIdx)
+    
+    hotspots.push({
+      id: id++,
+      charIndex,
+      char,
+      backtrackCount: data.count,
+      totalSteps: data.steps,
+      sampleText,
+      sampleStart,
+      sampleEnd,
+      chain
+    })
+  })
+
+  hotspots.sort((a, b) => b.backtrackCount - a.backtrackCount)
+
+  const worstHotspot = hotspots.length > 0 ? hotspots[0] : null
+
+  return { hotspots, totalBacktracks, worstHotspot, backtrackRate }
+}
+
 export function computeNFA(nfaResult: ReturnType<typeof buildNFA>): NFA {
   const nodes = nfaResult.states.map((s, i) => ({
     id: s.id,
@@ -416,6 +492,13 @@ export const useRegexStore = defineStore('regex', () => {
     }
   })
 
+  const backtrackAnalysis = computed((): BacktrackAnalysis => {
+    if (!matchResult.value) {
+      return { hotspots: [], totalBacktracks: 0, worstHotspot: null, backtrackRate: 0 }
+    }
+    return analyzeBacktracks(matchResult.value, testString.value)
+  })
+
   function execute() {
     error.value = ''
     try {
@@ -481,7 +564,7 @@ export const useRegexStore = defineStore('regex', () => {
 
   return {
     pattern, testString, currentStep, isPlaying, nfa, matchResult, ast, error,
-    selectedTemplate, groupColors, matchHighlight,
+    selectedTemplate, groupColors, matchHighlight, backtrackAnalysis,
     execute, setPattern, setTestString, applyTemplate,
     stepForward, stepBackward, resetStep, play, stop
   }

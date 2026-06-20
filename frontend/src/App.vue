@@ -52,6 +52,8 @@
           </div>
           <div v-else class="text-slate-500 text-sm">无步骤数据</div>
         </div>
+
+        <BacktrackHotspot />
       </div>
     </div>
   </div>
@@ -64,6 +66,7 @@ import RegexEditor from './components/RegexEditor.vue'
 import NfaVisualizer from './components/NfaVisualizer.vue'
 import MatchHighlight from './components/MatchHighlight.vue'
 import TemplateLibrary from './components/TemplateLibrary.vue'
+import BacktrackHotspot from './components/BacktrackHotspot.vue'
 
 const store = useRegexStore()
 onMounted(() => store.execute())
